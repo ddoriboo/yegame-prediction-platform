@@ -9,14 +9,17 @@ const { getDB } = require('../database/init');
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
-// Email transporter setup
-const transporter = nodemailer.createTransporter({
-    service: 'gmail',
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-    }
-});
+// Email transporter setup (only if email credentials are provided)
+let transporter = null;
+if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    transporter = nodemailer.createTransporter({
+        service: 'gmail',
+        auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASS
+        }
+    });
+}
 
 // 회원가입
 router.post('/signup', async (req, res) => {
@@ -195,15 +198,16 @@ router.get('/verify', (req, res) => {
     }
 });
 
-// OAuth Routes
+// OAuth Routes (only if credentials are configured)
 // Google OAuth
-router.get('/google', passport.authenticate('google', {
-    scope: ['profile', 'email']
-}));
+if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+    router.get('/google', passport.authenticate('google', {
+        scope: ['profile', 'email']
+    }));
 
-router.get('/google/callback', 
-    passport.authenticate('google', { failureRedirect: '/login' }),
-    (req, res) => {
+    router.get('/google/callback', 
+        passport.authenticate('google', { failureRedirect: '/login' }),
+        (req, res) => {
         // Generate JWT token for OAuth user
         const token = jwt.sign(
             { id: req.user.id, username: req.user.username, email: req.user.email },
@@ -219,16 +223,18 @@ router.get('/google/callback',
             coins: req.user.coins
         }))}`);
     }
-);
+    );
+}
 
 // GitHub OAuth
-router.get('/github', passport.authenticate('github', {
-    scope: ['user:email']
-}));
+if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET) {
+    router.get('/github', passport.authenticate('github', {
+        scope: ['user:email']
+    }));
 
-router.get('/github/callback',
-    passport.authenticate('github', { failureRedirect: '/login' }),
-    (req, res) => {
+    router.get('/github/callback',
+        passport.authenticate('github', { failureRedirect: '/login' }),
+        (req, res) => {
         // Generate JWT token for OAuth user
         const token = jwt.sign(
             { id: req.user.id, username: req.user.username, email: req.user.email },
@@ -244,7 +250,8 @@ router.get('/github/callback',
             coins: req.user.coins
         }))}`);
     }
-);
+    );
+}
 
 // Email verification
 router.post('/send-verification', async (req, res) => {
@@ -299,6 +306,13 @@ router.post('/send-verification', async (req, res) => {
                 };
                 
                 try {
+                    if (!transporter) {
+                        return res.status(500).json({
+                            success: false,
+                            message: '이메일 서비스가 설정되지 않았습니다.'
+                        });
+                    }
+                    
                     await transporter.sendMail(mailOptions);
                     res.json({
                         success: true,

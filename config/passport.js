@@ -16,12 +16,13 @@ passport.deserializeUser((id, done) => {
     });
 });
 
-// Google OAuth Strategy
-passport.use(new GoogleStrategy({
-    clientID: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: "/api/auth/google/callback"
-}, async (accessToken, refreshToken, profile, done) => {
+// Google OAuth Strategy (only if credentials are provided)
+if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+    passport.use(new GoogleStrategy({
+        clientID: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        callbackURL: "/api/auth/google/callback"
+    }, async (accessToken, refreshToken, profile, done) => {
     try {
         const db = getDB();
         
@@ -61,14 +62,16 @@ passport.use(new GoogleStrategy({
     } catch (error) {
         return done(error);
     }
-}));
+    }));
+}
 
-// GitHub OAuth Strategy
-passport.use(new GitHubStrategy({
-    clientID: process.env.GITHUB_CLIENT_ID,
-    clientSecret: process.env.GITHUB_CLIENT_SECRET,
-    callbackURL: "/api/auth/github/callback"
-}, async (accessToken, refreshToken, profile, done) => {
+// GitHub OAuth Strategy (only if credentials are provided)
+if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET) {
+    passport.use(new GitHubStrategy({
+        clientID: process.env.GITHUB_CLIENT_ID,
+        clientSecret: process.env.GITHUB_CLIENT_SECRET,
+        callbackURL: "/api/auth/github/callback"
+    }, async (accessToken, refreshToken, profile, done) => {
     try {
         const db = getDB();
         
@@ -109,6 +112,7 @@ passport.use(new GitHubStrategy({
     } catch (error) {
         return done(error);
     }
-}));
+    }));
+}
 
 module.exports = passport;
