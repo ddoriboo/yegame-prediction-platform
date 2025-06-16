@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const path = require('path');
+const session = require('express-session');
+const passport = require('./config/passport');
 require('dotenv').config();
 
 const authRoutes = require('./routes/auth');
@@ -28,6 +30,18 @@ app.use(helmet({
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
+
+// Session middleware for OAuth
+app.use(session({
+    secret: process.env.SESSION_SECRET || 'your-session-secret',
+    resave: false,
+    saveUninitialized: false,
+    cookie: { secure: process.env.NODE_ENV === 'production' }
+}));
+
+// Passport middleware
+app.use(passport.initialize());
+app.use(passport.session());
 
 // API 라우트
 app.use('/api/auth', authRoutes);

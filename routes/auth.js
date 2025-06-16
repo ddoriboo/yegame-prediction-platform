@@ -1,10 +1,22 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const passport = require('../config/passport');
+const nodemailer = require('nodemailer');
+const crypto = require('crypto');
 const { getDB } = require('../database/init');
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+
+// Email transporter setup
+const transporter = nodemailer.createTransporter({
+    service: 'gmail',
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+    }
+});
 
 // 회원가입
 router.post('/signup', async (req, res) => {
@@ -181,6 +193,163 @@ router.get('/verify', (req, res) => {
             message: '유효하지 않은 토큰입니다.' 
         });
     }
+});
+
+// OAuth Routes
+// Google OAuth
+router.get('/google', passport.authenticate('google', {
+    scope: ['profile', 'email']
+}));
+
+router.get('/google/callback', 
+    passport.authenticate('google', { failureRedirect: '/login' }),
+    (req, res) => {
+        // Generate JWT token for OAuth user
+        const token = jwt.sign(
+            { id: req.user.id, username: req.user.username, email: req.user.email },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+        
+        // Redirect to frontend with token
+        res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}?token=${token}&user=${encodeURIComponent(JSON.stringify({
+            id: req.user.id,
+            username: req.user.username,
+            email: req.user.email,
+            coins: req.user.coins
+        }))}`);
+    }
+);
+
+// GitHub OAuth
+router.get('/github', passport.authenticate('github', {
+    scope: ['user:email']
+}));
+
+router.get('/github/callback',
+    passport.authenticate('github', { failureRedirect: '/login' }),
+    (req, res) => {
+        // Generate JWT token for OAuth user
+        const token = jwt.sign(
+            { id: req.user.id, username: req.user.username, email: req.user.email },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+        
+        // Redirect to frontend with token
+        res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}?token=${token}&user=${encodeURIComponent(JSON.stringify({
+            id: req.user.id,
+            username: req.user.username,
+            email: req.user.email,
+            coins: req.user.coins
+        }))}`);
+    }
+);
+
+// Email verification
+router.post('/send-verification', async (req, res) => {
+    try {
+        const { email } = req.body;
+        const db = getDB();
+        
+        // Check if user exists
+        db.get('SELECT * FROM users WHERE email = ?', [email], (err, user) => {
+            if (err || !user) {
+                return res.status(400).json({
+                    success: false,
+                    message: '사용자를 찾을 수 없습니다.'
+                });
+            }
+            
+            if (user.verified) {
+                return res.status(400).json({
+                    success: false,
+                    message: '이미 인증된 사용자입니다.'
+                });
+            }
+            
+            // Generate verification token
+            const verificationToken = crypto.randomBytes(32).toString('hex');
+            
+            // Update user with verification token
+            db.run('UPDATE users SET verification_token = ? WHERE id = ?', 
+                [verificationToken, user.id], async (err) => {
+                if (err) {
+                    return res.status(500).json({
+                        success: false,
+                        message: '인증 토큰 생성에 실패했습니다.'
+                    });
+                }
+                
+                // Send verification email
+                const verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email?token=${verificationToken}`;
+                
+                const mailOptions = {
+                    from: process.env.EMAIL_USER,
+                    to: email,
+                    subject: '예겜 - 이메일 인증',
+                    html: `
+                        <h2>예겜 이메일 인증</h2>
+                        <p>안녕하세요 ${user.username}님!</p>
+                        <p>아래 링크를 클릭하여 이메일 인증을 완료해주세요:</p>
+                        <a href="${verificationUrl}" style="background-color: #3B82F6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">이메일 인증하기</a>
+                        <p>링크가 작동하지 않으면 다음 주소를 복사하여 브라우저에 붙여넣어주세요:</p>
+                        <p>${verificationUrl}</p>
+                    `
+                };
+                
+                try {
+                    await transporter.sendMail(mailOptions);
+                    res.json({
+                        success: true,
+                        message: '인증 이메일이 발송되었습니다.'
+                    });
+                } catch (emailError) {
+                    console.error('Email sending failed:', emailError);
+                    res.status(500).json({
+                        success: false,
+                        message: '이메일 발송에 실패했습니다.'
+                    });
+                }
+            });
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: '서버 오류가 발생했습니다.'
+        });
+    }
+});
+
+// Verify email
+router.get('/verify-email/:token', (req, res) => {
+    const { token } = req.params;
+    const db = getDB();
+    
+    db.get('SELECT * FROM users WHERE verification_token = ?', [token], (err, user) => {
+        if (err || !user) {
+            return res.status(400).json({
+                success: false,
+                message: '유효하지 않은 인증 토큰입니다.'
+            });
+        }
+        
+        // Update user as verified
+        db.run('UPDATE users SET verified = TRUE, verification_token = NULL WHERE id = ?', 
+            [user.id], (err) => {
+            if (err) {
+                return res.status(500).json({
+                    success: false,
+                    message: '인증 처리 중 오류가 발생했습니다.'
+                });
+            }
+            
+            res.json({
+                success: true,
+                message: '이메일 인증이 완료되었습니다.'
+            });
+        });
+    });
 });
 
 module.exports = router;
