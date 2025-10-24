@@ -662,50 +662,121 @@ function setupAdminFunctions() {
     // 모달 열기
     createBtn?.addEventListener('click', () => {
         modal.classList.remove('hidden');
+        modal.style.display = 'flex';
         document.body.style.overflow = 'hidden';
     });
 
     // 모달 닫기
     const closeModal = () => {
         modal.classList.add('hidden');
+        modal.style.display = 'none';
         document.body.style.overflow = 'auto';
-        form.reset();
+        form?.reset();
+        // 카테고리 버튼 초기화
+        document.querySelectorAll('.category-btn').forEach(btn => {
+            btn.classList.remove('border-blue-500', 'bg-blue-50', 'text-blue-600');
+            btn.classList.add('border-gray-200', 'text-gray-700');
+        });
+        // 슬라이더 초기화
+        const priceDisplay = document.getElementById('yes-price-display');
+        if (priceDisplay) priceDisplay.textContent = '50%';
     };
 
     closeBtn?.addEventListener('click', closeModal);
     cancelBtn?.addEventListener('click', closeModal);
-    
+
     // 모달 외부 클릭시 닫기
     modal?.addEventListener('click', (e) => {
         if (e.target === modal) closeModal();
+    });
+
+    // 카테고리 버튼 클릭 핸들러
+    document.querySelectorAll('.category-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            // 모든 버튼 초기화
+            document.querySelectorAll('.category-btn').forEach(b => {
+                b.classList.remove('border-blue-500', 'bg-blue-50', 'text-blue-600');
+                b.classList.add('border-gray-200', 'text-gray-700');
+            });
+            // 선택된 버튼 활성화
+            btn.classList.remove('border-gray-200', 'text-gray-700');
+            btn.classList.add('border-blue-500', 'bg-blue-50', 'text-blue-600');
+            // hidden input에 값 설정
+            document.getElementById('issue-category').value = btn.dataset.category;
+        });
+    });
+
+    // 빠른 날짜 선택 버튼 핸들러
+    document.querySelectorAll('.quick-date-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const days = parseInt(btn.dataset.days);
+            const date = new Date();
+            date.setDate(date.getDate() + days);
+
+            // datetime-local 포맷으로 변환 (YYYY-MM-DDTHH:mm)
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+
+            const dateString = `${year}-${month}-${day}T${hours}:${minutes}`;
+            document.getElementById('issue-end-date').value = dateString;
+        });
+    });
+
+    // 확률 슬라이더 실시간 업데이트
+    const priceSlider = document.getElementById('issue-yes-price');
+    const priceDisplay = document.getElementById('yes-price-display');
+
+    priceSlider?.addEventListener('input', (e) => {
+        if (priceDisplay) {
+            priceDisplay.textContent = `${e.target.value}%`;
+        }
     });
 
     // 이슈 생성 폼 제출
     form?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const formData = new FormData(form);
-        
-        const newIssue = {
-            id: Date.now(),
+
+        const issueData = {
             title: formData.get('title'),
             category: formData.get('category'),
             endDate: formData.get('endDate'),
             yesPrice: parseInt(formData.get('yesPrice')),
-            totalVolume: 0,
-            isPopular: formData.get('isPopular') === 'on',
-            correct_answer: null,
-            yesVolume: 0,
-            noVolume: 0
+            isPopular: document.getElementById('issue-popular')?.checked || false
         };
 
-        // 백엔드에 이슈 추가
-        const result = addNewIssue(newIssue);
-        if (result.success) {
-            alert('이슈가 성공적으로 생성되었습니다!');
-            closeModal();
-            renderAdminIssueTable();
-        } else {
-            alert('이슈 생성에 실패했습니다: ' + result.message);
+        // 유효성 검사
+        if (!issueData.category) {
+            alert('카테고리를 선택해주세요.');
+            return;
+        }
+
+        try {
+            // 백엔드 API 호출
+            const response = await fetch('/api/issues', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify(issueData)
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                alert('이슈가 성공적으로 생성되었습니다!');
+                closeModal();
+                renderAdminIssueTable();
+            } else {
+                alert('이슈 생성에 실패했습니다: ' + result.message);
+            }
+        } catch (error) {
+            console.error('이슈 생성 오류:', error);
+            alert('이슈 생성 중 오류가 발생했습니다.');
         }
     });
 }
@@ -713,33 +784,78 @@ function setupAdminFunctions() {
 function renderAdminIssueTable() {
     const issues = backend.getIssues();
     const tbody = document.getElementById('issues-table-body');
-    
-    if (!tbody) return;
+    const cardBody = document.getElementById('issues-card-body');
 
-    tbody.innerHTML = issues.map(issue => `
-        <tr>
-            <td class="px-6 py-4">
-                <div class="text-sm font-medium text-gray-900">${issue.title}</div>
-                <div class="text-sm text-gray-500">ID: ${issue.id}</div>
-            </td>
-            <td class="px-6 py-4">
-                <span style="${getCategoryBadgeStyle(issue.category)} padding: 0.25rem 0.5rem; border-radius: 6px; font-size: 0.75rem; font-weight: 500;">
-                    ${issue.category}
-                </span>
-            </td>
-            <td class="px-6 py-4 text-sm text-gray-900">${issue.yesPrice}%</td>
-            <td class="px-6 py-4 text-sm text-gray-900">${formatVolume(issue.totalVolume)} 감</td>
-            <td class="px-6 py-4">
-                <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full ${issue.isPopular ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
-                    ${issue.isPopular ? '인기' : '일반'}
-                </span>
-            </td>
-            <td class="px-6 py-4 text-sm space-x-2">
-                <button onclick="editIssue(${issue.id})" class="text-blue-600 hover:text-blue-900">수정</button>
-                <button onclick="deleteIssue(${issue.id})" class="text-red-600 hover:text-red-900">삭제</button>
-            </td>
-        </tr>
-    `).join('');
+    // 데스크톱: 테이블 뷰
+    if (tbody) {
+        tbody.innerHTML = issues.map(issue => `
+            <tr>
+                <td class="px-6 py-4">
+                    <div class="text-sm font-medium text-gray-900">${issue.title}</div>
+                    <div class="text-sm text-gray-500">ID: ${issue.id}</div>
+                </td>
+                <td class="px-6 py-4">
+                    <span style="${getCategoryBadgeStyle(issue.category)} padding: 0.25rem 0.5rem; border-radius: 6px; font-size: 0.75rem; font-weight: 500;">
+                        ${issue.category}
+                    </span>
+                </td>
+                <td class="px-6 py-4 text-sm text-gray-900">${issue.yesPrice}%</td>
+                <td class="px-6 py-4 text-sm text-gray-900">${formatVolume(issue.totalVolume)} 감</td>
+                <td class="px-6 py-4">
+                    <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full ${issue.isPopular ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
+                        ${issue.isPopular ? '인기' : '일반'}
+                    </span>
+                </td>
+                <td class="px-6 py-4 text-sm space-x-2">
+                    <button onclick="window.editIssue(${issue.id})" class="text-blue-600 hover:text-blue-900 font-medium">수정</button>
+                    <button onclick="window.deleteIssue(${issue.id})" class="text-red-600 hover:text-red-900 font-medium">삭제</button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    // 모바일/태블릿: 카드 뷰
+    if (cardBody) {
+        cardBody.innerHTML = issues.map(issue => `
+            <div class="p-4 bg-white hover:bg-gray-50 transition-colors">
+                <div class="flex justify-between items-start mb-3">
+                    <div class="flex-1 pr-4">
+                        <h4 class="text-sm font-semibold text-gray-900 mb-1">${issue.title}</h4>
+                        <p class="text-xs text-gray-500">ID: ${issue.id}</p>
+                    </div>
+                    <span style="${getCategoryBadgeStyle(issue.category)} padding: 0.25rem 0.5rem; border-radius: 6px; font-size: 0.7rem; font-weight: 500; white-space: nowrap;">
+                        ${issue.category}
+                    </span>
+                </div>
+
+                <div class="grid grid-cols-3 gap-3 mb-3">
+                    <div class="text-center">
+                        <p class="text-xs text-gray-500 mb-1">Yes 확률</p>
+                        <p class="text-sm font-bold text-green-600">${issue.yesPrice}%</p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-xs text-gray-500 mb-1">참여량</p>
+                        <p class="text-sm font-semibold text-gray-900">${formatVolume(issue.totalVolume)} 감</p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-xs text-gray-500 mb-1">상태</p>
+                        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full ${issue.isPopular ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
+                            ${issue.isPopular ? '인기' : '일반'}
+                        </span>
+                    </div>
+                </div>
+
+                <div class="flex gap-2">
+                    <button onclick="window.editIssue(${issue.id})" class="flex-1 py-2 px-3 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors">
+                        수정
+                    </button>
+                    <button onclick="window.deleteIssue(${issue.id})" class="flex-1 py-2 px-3 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors">
+                        삭제
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
 }
 
 function addNewIssue(issue) {
@@ -755,7 +871,7 @@ function addNewIssue(issue) {
 
 function deleteIssue(issueId) {
     if (!confirm('정말로 이 이슈를 삭제하시겠습니까?')) return;
-    
+
     try {
         const issues = backend.getIssues();
         const filteredIssues = issues.filter(issue => issue.id !== issueId);
@@ -782,3 +898,7 @@ function editIssue(issueId) {
         alert('이슈 수정에 실패했습니다: ' + error.message);
     }
 }
+
+// 전역 함수로 노출 (onclick 핸들러에서 사용)
+window.editIssue = editIssue;
+window.deleteIssue = deleteIssue;
